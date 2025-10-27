@@ -89,25 +89,6 @@ to { opacity: 1; transform: translateY(0); }
 transition: max-height 0.5s ease-in-out;
 overflow: hidden;
 }
-/* Comment out simulation styles as they are no longer used */
-/*
-.sim-log-item {
-padding: 2px 6px;
-border-radius: 4px;
-font-weight: 500;
-color: white;
-text-align: center;
-}
-#simLog {
-display: grid;
-gap: 4px;
-max-height: 110px;
-overflow-y: auto;
-padding-right: 5px;
-scrollbar-width: thin;
-scrollbar-color: #4B5563 #1F2937;
-}
-*/
 /* SỬA LỖI: Di chuyển keyframes vào đây */
 @keyframes fadeOut {
 from { opacity: 1; transform: translateY(0); }
@@ -214,6 +195,20 @@ height: 40%; /* Cột ngắn */
 <button onclick="showCustomConfirm('Bạn có chắc muốn xóa toàn bộ lịch sử và thống kê của phiên này không?', clearCurrentSessionHistory)" class="btn flex-1 bg-yellow-600 hover:bg-yellow-500 text-white font-bold py-3 px-4 rounded-lg">🗑️ Xóa Lịch Sử</button>
 </div>
 </div>
+
+<!-- *** VỊ TRÍ MỚI *** History Display (Big Road) -->
+<div class="bg-gray-800 p-6 rounded-2xl shadow-lg">
+<div class="flex justify-between items-center mb-4">
+<h2 class="text-xl font-semibold text-blue-300">📜 Bảng Cầu Big Road</h2>
+<span class="text-gray-400 font-medium">Tổng: <span id="totalGames">0</span> ván</span>
+</div>
+<div class="bg-gray-900 rounded-lg min-h-[280px] border border-gray-700">
+<div id="bigRoadDisplay">
+<p class="text-gray-500 p-4">Chưa có kết quả...</p>
+</div>
+</div>
+</div>
+
 <!-- Verdict Stats Table -->
 <div class="bg-gray-800 p-6 rounded-2xl shadow-lg">
 <h2 class="text-xl font-semibold mb-2 text-indigo-300">⚖️ Thống Kê Phán Quyết (Phiên)</h2>
@@ -227,18 +222,13 @@ height: 40%; /* Cột ngắn */
 <div id="confidenceRecommendation" class="my-4 p-3 bg-gray-900 rounded-lg text-center"></div>
 <div class="space-y-2" id="confidenceStatsTable"></div>
 </div>
-<!-- History Display -->
+
+<!-- *** VỊ TRÍ CŨ *** History Display (Đã bị di chuyển lên trên) -->
+<!--
 <div class="bg-gray-800 p-6 rounded-2xl shadow-lg">
-<div class="flex justify-between items-center mb-4">
-<h2 class="text-xl font-semibold text-blue-300">📜 Bảng Cầu Big Road</h2>
-<span class="text-gray-400 font-medium">Tổng: <span id="totalGames">0</span> ván</span>
+...
 </div>
-<div class="bg-gray-900 rounded-lg min-h-[280px] border border-gray-700">
-<div id="bigRoadDisplay">
-<p class="text-gray-500 p-4">Chưa có kết quả...</p>
-</div>
-</div>
-</div>
+-->
 </div>
 <!-- Right Column: Analysis & Stats -->
 <div class="space-y-6">
@@ -277,12 +267,6 @@ height: 40%; /* Cột ngắn */
 <p class="text-gray-400 text-center py-8">Cần ít nhất 10 kết quả để bắt đầu phân tích...</p>
 </div>
 </div>
-<!-- SIMULATION PANEL REMOVED -->
-<!--
-<div class="bg-gray-800 p-6 rounded-2xl shadow-lg">
-... (Simulation Panel HTML commented out) ...
-</div>
--->
 </div>
 </div>
 <script>
@@ -482,7 +466,7 @@ return sequenceData;
 }
 // --- SELF-VERDICT LOGIC ---
 function getCurrentStreak(sequence) {
-if (!sequence) return { type: null, length: 0 };
+if (!sequence || sequence.length === 0) return { type: null, length: 0 }; // Sửa: Thêm check sequence
 const lastChar = sequence.slice(-1);
 let length = 0;
 for (let i = sequence.length - 1; i >= 0; i--) {
@@ -845,10 +829,6 @@ html += createRowHTML('Theo Hệ Thống', stats.follow);
 html += createRowHTML('Ngược Hệ Thống', stats.against);
 tableDiv.innerHTML = html;
 }
-// Comment out simulation UI update function
-/*
-function updateSimulationUI() { ... }
-*/
 function updateAllUI() {
 updateBigRoadUI();
 updateAccuracyUI();
@@ -856,7 +836,6 @@ updateGlobalAccuracyUI();
 updateAnalysisUI(); // Tính toán Phán quyết HT và lưu P/B gốc
 updateConfidenceStatsUI();
 updateVerdictStatsUI();
-//updateSimulationUI(); // Removed simulation update
 updateChotAnalysisUI(); // Tính toán Chốt dựa trên kết quả Phán quyết HT
 }
 function toggleSessionManagement() {
@@ -966,35 +945,67 @@ return b.stats.total - a.stats.total; // Nếu độ lệch bằng nhau, ưu ti�
 return possibleResults[0]; // Trả về kết quả tốt nhất
 }
 /**
-* MỚI: Tạo HTML cho một hàng trong bảng phân tích chi tiết Chốt.
+* MỚI: Phân tích chuỗi tối đa (Max Streak) cho một nguồn dữ liệu.
+* @param {string} currentSequence - Chuỗi W/L hiện tại của nguồn.
+* @param {Object} historicalSequences - Lịch sử W/L của nguồn từ các phiên khác.
+* @returns {Object|null} - Dự đoán W/L dựa trên max streak: { prediction: 'W'|'L', explanation: string } hoặc null.
 */
-function getChotRowHTML(name, currentSequence, optimalLengthInfo, predictedWL, isActive, finalPBprediction) {
-const stats = optimalLengthInfo?.stats || { W: 0, L: 0, total: 0 };
-let wRate = 0, lRate = 0;
-if (stats.total > 0) {
-wRate = (stats.W / stats.total) * 100;
-lRate = (stats.L / stats.total) * 100;
+function analyzeMaxStreak(currentSequence, historicalSequences) {
+const currentStreak = getCurrentStreak(currentSequence);
+if (currentStreak.length < 2) {
+return null; // Chuỗi hiện tại quá ngắn để phân tích
 }
+const streakStats = calculateStreakStats(historicalSequences);
+if (currentStreak.type === 'W') {
+if (streakStats.maxW > 0 && currentStreak.length >= streakStats.maxW) {
+// Đã đạt hoặc vượt max W -> dự đoán L
+return { prediction: 'L', explanation: `Chuỗi Thắng (x${currentStreak.length}) đã chạm/vượt max lịch sử (x${streakStats.maxW})` };
+}
+} else if (currentStreak.type === 'L') {
+if (streakStats.maxL > 0 && currentStreak.length >= streakStats.maxL) {
+// Đã đạt hoặc vượt max L -> dự đoán W
+return { prediction: 'W', explanation: `Chuỗi Thua (x${currentStreak.length}) đã chạm/vượt max lịch sử (x${streakStats.maxL})` };
+}
+}
+return null; // Chưa đạt ngưỡng max streak
+}
+/**
+* MỚI: Tạo HTML cho một hàng trong bảng phân tích chi tiết Chốt.
+* Cập nhật để hiển thị cả logic Max Streak và Pattern.
+*/
+function getChotRowHTML(name, currentSequence, analysisResult, isActive, finalPBprediction) {
+const { predictionType, predictedWL, explanation, stats, optimalLength } = analysisResult;
 let wlPredictionText = '-';
 let wlPredictionColor = 'text-gray-500';
-let optimalLengthDisplay = optimalLengthInfo?.length ? `Dài ${optimalLengthInfo.length}` : '-';
-if (predictedWL) {
+let analysisTypeDisplay = '-'; // Hiển thị loại phân tích (Max Streak / Pattern)
+// Ưu tiên hiển thị giải thích từ Max Streak nếu có
+if (predictionType === 'MAX_STREAK') {
+analysisTypeDisplay = `Max (W${stats.maxW}/L${stats.maxL})`; // Hiển thị Max W/L
+wlPredictionText = `-> ${predictedWL} (${explanation})`;
+wlPredictionColor = predictedWL === 'W' ? 'text-green-400' : 'text-red-400';
+} else if (predictionType === 'PATTERN') {
+// Logic hiển thị của Pattern như cũ
+const wRate = (stats.W / stats.total) * 100;
+const lRate = (stats.L / stats.total) * 100;
+analysisTypeDisplay = `Pattern (dài ${optimalLength})`;
 wlPredictionText = `-> ${predictedWL} (${Math.max(wRate, lRate).toFixed(0)}%)`;
 wlPredictionColor = predictedWL === 'W' ? 'text-green-400' : 'text-red-400';
-} else if (stats.total >= 2 && wRate === lRate) {
+} else if (predictionType === 'BALANCED') {
+analysisTypeDisplay = `Pattern (dài ${optimalLength})`;
 wlPredictionText = 'Cân bằng';
 wlPredictionColor = 'text-yellow-400';
-} else if (optimalLengthInfo && stats.total < 2) { // Có tìm thấy mẫu nhưng ít hơn 2 lần
+} else if (predictionType === 'NOT_ENOUGH_SAMPLES') {
+analysisTypeDisplay = `Pattern (dài ${optimalLength})`;
 wlPredictionText = 'Ít mẫu';
 wlPredictionColor = 'text-gray-500';
-} else if (!optimalLengthInfo && currentSequence.length >= 3){ // Đủ dài nhưng ko tìm thấy mẫu nào đủ 2 lần
+} else if (predictionType === 'NO_HISTORY_PATTERN') {
+analysisTypeDisplay = '-';
 wlPredictionText = 'Ko mẫu LS';
 wlPredictionColor = 'text-gray-600';
-optimalLengthDisplay = '-'; // Không có độ dài tối ưu
-} else if (currentSequence.length < 3) {
+} else if (predictionType === 'NOT_ENOUGH_WL') {
+analysisTypeDisplay = '-';
 wlPredictionText = 'Chờ W/L';
 wlPredictionColor = 'text-gray-600';
-optimalLengthDisplay = '-';
 }
 let pbIndicator = '';
 if (isActive && finalPBprediction) {
@@ -1019,11 +1030,11 @@ individualBarsHTML += '</div>';
 return `
 <div class="grid grid-cols-12 gap-2 items-center text-xs mb-1 p-1.5 ${activeClass} rounded-lg transition-colors duration-300">
 <div class="col-span-2 font-semibold ${isActive ? 'text-purple-300' : 'text-gray-300'} truncate" title="${name}">${name}</div>
-<div class="col-span-2 text-center text-gray-400" title="Độ dài mẫu W/L tốt nhất">${optimalLengthDisplay}</div>
-<div class="col-span-4">
+<div class="col-span-3 text-center text-gray-400" title="Loại phân tích (Max Streak / Pattern)">${analysisTypeDisplay}</div>
+<div class="col-span-3">
 ${individualBarsHTML}
 </div>
-<div class="col-span-4 text-right font-bold ${wlPredictionColor}">
+<div class="col-span-4 text-right font-bold ${wlPredictionColor} truncate" title="${wlPredictionText}">
 ${wlPredictionText}
 ${pbIndicator}
 </div>
@@ -1031,14 +1042,60 @@ ${pbIndicator}
 `;
 }
 /**
-* Cập nhật toàn bộ giao diện cho bảng phân tích "CHỐT" - Sử dụng độ dài linh hoạt.
+* MỚI: Hàm quyết định chính cho Chốt, kết hợp Max Streak và Pattern.
+* @param {string} currentSequence - Chuỗi W/L hiện tại.
+* @param {Object} historicalSequences - Lịch sử W/L từ các phiên khác.
+* @returns {Object} - Kết quả phân tích { predictionType, predictedWL, explanation, stats, optimalLength }
+*/
+function getChotPrediction(currentSequence, historicalSequences) {
+const MIN_PATTERN_LEN = 3;
+const MAX_PATTERN_LEN = 10;
+const MIN_PATTERN_OCCURRENCES = 2;
+// --- BƯỚC 1: ƯU TIÊN PHÂN TÍCH MAX STREAK ---
+const maxStreakResult = analyzeMaxStreak(currentSequence, historicalSequences);
+if (maxStreakResult) {
+const streakStats = calculateStreakStats(historicalSequences);
+return {
+predictionType: 'MAX_STREAK', // Loại phân tích
+predictedWL: maxStreakResult.prediction, // 'W' hoặc 'L'
+explanation: maxStreakResult.explanation, // Giải thích lý do
+stats: streakStats, // Gửi stats (maxW, maxL) để hiển thị
+optimalLength: null // Không áp dụng cho max streak
+};
+}
+// --- BƯỚC 2: NẾU KHÔNG CÓ MAX STREAK, DÙNG PHÂN TÍCH PATTERN (NHƯ CŨ) ---
+if (currentSequence.length < MIN_PATTERN_LEN) {
+return { predictionType: 'NOT_ENOUGH_WL' }; // Chưa đủ W/L
+}
+const bestPatternInfo = findBestChotPatternLength(
+currentSequence,
+historicalSequences,
+MIN_PATTERN_LEN,
+MAX_PATTERN_LEN,
+MIN_PATTERN_OCCURRENCES
+);
+if (!bestPatternInfo) {
+return { predictionType: 'NO_HISTORY_PATTERN' }; // Không tìm thấy pattern nào trong LS
+}
+const { length, stats, rate } = bestPatternInfo;
+if (stats.W > stats.L) {
+return { predictionType: 'PATTERN', predictedWL: 'W', stats: stats, optimalLength: length };
+} else if (stats.L > stats.W) {
+return { predictionType: 'PATTERN', predictedWL: 'L', stats: stats, optimalLength: length };
+} else if (stats.total > 0) { // W == L
+return { predictionType: 'BALANCED', stats: stats, optimalLength: length };
+} else {
+// Trường hợp này không nên xảy ra nếu bestPatternInfo trả về đúng
+return { predictionType: 'NOT_ENOUGH_SAMPLES', stats: stats, optimalLength: length };
+}
+}
+/**
+* Cập nhật toàn bộ giao diện cho bảng phân tích "CHỐT" - Sử dụng logic kết hợp.
 */
 function updateChotAnalysisUI() {
-// Bỏ PATTERN_LENGTH cố định
-const MIN_OCCURRENCES_FOR_PREDICTION = 2;
 const MAX_BARS_TO_SHOW = 50;
 const finalChotResultDiv = document.getElementById('finalChotResult');
-const chotAnalysisDetailsDiv = document.getElementById('chotAnalysisDetails'); // Thêm div chi tiết
+const chotAnalysisDetailsDiv = document.getElementById('chotAnalysisDetails');
 const chotHistoryChartDiv = document.getElementById('chotHistoryChart');
 const chotAccuracyStatsSpan = document.getElementById('chotAccuracyStats');
 if (!finalChotResultDiv || !chotAnalysisDetailsDiv || !chotHistoryChartDiv || !chotAccuracyStatsSpan) return;
@@ -1076,25 +1133,19 @@ const isActive = activeSourcesKeys.has(source.key);
 const currentSequence = allSequences[source.key][currentSessionId] || "";
 const historicalData = { ...allSequences[source.key] };
 delete historicalData[currentSessionId];
-// Tìm độ dài tốt nhất cho nguồn này
-const bestPatternInfo = findBestChotPatternLength(currentSequence, historicalData, 3, 10, MIN_OCCURRENCES_FOR_PREDICTION);
-let predictedWL = null;
+// *** THAY ĐỔI: Sử dụng hàm quyết định kết hợp mới ***
+const analysisResult = getChotPrediction(currentSequence, historicalData);
 let finalPBprediction = null;
-if (bestPatternInfo) {
-const stats = bestPatternInfo.stats;
-if (stats.W !== stats.L) { // Chỉ dự đoán nếu không cân bằng
-predictedWL = stats.W > stats.L ? 'W' : 'L';
-// Chỉ bỏ phiếu nếu nguồn đang hoạt động
-if (isActive) {
+if (analysisResult.predictedWL && isActive) {
+// Chỉ bỏ phiếu nếu nguồn đang hoạt động và có dự đoán W/L
+const predictedWL = analysisResult.predictedWL;
 finalPBprediction = (predictedWL === 'W') ? originalSystemPB : (originalSystemPB === 'P' ? 'B' : 'P');
 if (finalPBprediction) {
 finalVotesPB[finalPBprediction]++;
 }
 }
-}
-}
 // Tạo HTML cho hàng này
-analysisRowsHTML += getChotRowHTML(source.name, currentSequence, bestPatternInfo, predictedWL, isActive, finalPBprediction);
+analysisRowsHTML += getChotRowHTML(source.name, currentSequence, analysisResult, isActive, finalPBprediction);
 }
 }
 // Hiển thị các hàng phân tích chi tiết
@@ -1160,20 +1211,12 @@ const accuracyRate = totalChot > 0 ? (correctChot / totalChot * 100).toFixed(1) 
 chotAccuracyStatsSpan.textContent = `Đúng: ${correctChot}/${totalChot} (${accuracyRate}%)`;
 }
 // --- END: MÃ MỚI CHO PHÂN TÍCH "CHỐT" ---
-// Comment out simulation setting update function
-/*
-function updateSimSetting(key, value, silent = false) { ... }
-*/
 // --- EVENT HANDLERS & ACTIONS ---
 function addResult(result) {
 if (!state.currentSessionId) return;
 const session = state.sessions[state.currentSessionId];
 // *** Lấy dự đoán Chốt ĐÃ ĐƯỢC TÍNH TOÁN trước đó cho ván NÀY ***
 const chotPredictionForThisRound = state.currentChotPredictionForLog;
-// --- Phần xử lý simulation (COMMENTED OUT) ---
-/*
-... simulation logic ...
-*/
 // --- Phần xử lý prediction hệ thống (giữ nguyên) ---
 if (state.currentPrediction && state.currentPrediction.prediction) {
 session.predictions.push({ predicted: state.currentPrediction.prediction, actual: result, confidence: state.currentPrediction.confidence });
@@ -1232,10 +1275,6 @@ return candidates[0].length;
 function undoLast() {
 if (!state.currentSessionId || state.sessions[state.currentSessionId].history.length === 0) return;
 const session = state.sessions[state.currentSessionId];
-// --- Hoàn tác Simulation (COMMENTED OUT) ---
-/*
-... simulation undo logic ...
-*/
 // --- Hoàn tác các dự đoán khác ---
 const lastResult = session.history[session.history.length - 1];
 const historyForUndo = session.history.slice(0, -1);
@@ -1299,10 +1338,6 @@ session.verdictPredictions = [];
 session.chotPredictions = []; // *** MỚI: Reset Chốt Predictions ***
 session.lengthPerformance = {};
 session.optimalLength = null;
-// --- Simulation reset (COMMENTED OUT) ---
-/*
-... simulation reset logic ...
-*/
 saveSessions();
 updateAllUI();
 }
@@ -1348,13 +1383,10 @@ loadSession(selector.value);
 function createNewSession() {
 const newId = `session-${Date.now()}`;
 state.currentSessionId = newId;
-// --- Default simulation removed ---
-/* ... */
 state.sessions[newId] = {
 name: `Phiên ${new Date().toLocaleString('vi-VN')}`,
 history: [], predictions: [], verdictPredictions: [], chotPredictions: [], // *** MỚI: Khởi tạo Chốt Predictions ***
 lengthPerformance: {}, optimalLength: null,
-// simulation: defaultSimulation // Removed simulation
 };
 saveSessions();
 updateSessionSelector();
@@ -1470,7 +1502,6 @@ createNewSession();
 updateSessionSelector(); // Update selector with processed sessions
 updateAllUI(); // Update UI based on the loaded session
 }
-
 // Adjusted importData to work without simulation fields
 function importData(event) {
 const file = event.target.files[0];
@@ -1489,7 +1520,6 @@ console.error(`Invalid data for session ${key}: Missing name or history is not a
 dataOk = false;
 break;
 };
-// Optional: Add more validation for history content if needed (e.g., only 'P' or 'B')
 }
 if (!dataOk && Object.keys(importedSessions).length > 0) {
 throw new Error("Invalid session data: name or history format incorrect in one or more sessions.");
@@ -1507,7 +1537,7 @@ showToast('Lỗi trong quá trình tính toán lại dữ liệu.', 'error');
 console.error("Calculation error during import:", simError);
 initializeApp(); // Reload initial state on error
 }
-}, 100); // Increased timeout slightly for potentially longer processing
+}, 100);
 });
 } catch (error) {
 hideLoadingModal(); // Ensure loading modal is hidden on parse error
@@ -1652,8 +1682,6 @@ input.onkeydown = (e) => { if (e.key === 'Enter') document.getElementById('promp
 }
 function initializeApp() {
 state.sessions = getSessions();
-// --- Default simulation removed ---
-/* ... */
 Object.values(state.sessions).forEach(s => {
 if (!s.lengthPerformance) s.lengthPerformance = {};
 if (s.optimalLength === undefined) s.optimalLength = null;
@@ -1674,12 +1702,162 @@ loadSession(idToLoad);
 const sessionContent = document.getElementById('sessionManagementContent');
 sessionContent.style.maxHeight = '0px'; // Start collapsed
 document.getElementById('toggleSessionIcon').style.transform = 'rotate(-180deg)'; // Match collapsed state
-// Removed event listeners for simulation inputs
-/* ... */
 }
 // --- INITIALIZATION ---
 document.addEventListener('DOMContentLoaded', initializeApp)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 </script>
 </body>
 </html>
-
